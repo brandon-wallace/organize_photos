@@ -1,4 +1,4 @@
-module github.com:brandon-wallace/organize_photos.git
+module github.com/brandon-wallace/organize_photos.git
 
 go 1.22.3
 

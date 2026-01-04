@@ -83,7 +83,7 @@ func main() {
 	}
 	
 	if len(files) == 0 {
-		fmt.Println("No image files to process.")
+		fmt.Println(" No image files to process.")
 		return
 	}
 
@@ -111,9 +111,11 @@ func main() {
 		successCount++
 	}
 
-	fmt.Printf("\n Organization complete.\n")
-	fmt.Printf(" Successfully moved files: %d\n", successCount)
-	fmt.Printf(" Errors: %d\n", errorCount)
-	fmt.Printf(" Total files moved: %d.\n", len(files))
+	template := ` Organization complete.
+ Successfully moved files: %d
+ Errors: %d
+ Total files moved: %d.`
+
+	fmt.Printf(template, successCount, errorCount, len(files))
 }
 
