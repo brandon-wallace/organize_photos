@@ -28,7 +28,7 @@ go build -o organize_photos
 
 ## Usage
 
-The tool requires a source directory (-src) where your messy photos live, and a destination directory (-dst) where you want the organized folders to be created.
+The tool requires a source directory (-src) where your unorganized photos live, and a destination directory (-dst) where you want the organized folders to be created.
 Basic Example
 
 ```
