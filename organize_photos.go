@@ -11,18 +11,24 @@ import (
 )
 
 const (
-	format    = "2006/01/02"
+	dateFormat = "2006/01/02"
 )
 
 var (
 	extensions = []string{"*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.arw", "*.ARW"}
 )
 
+// stats tracks the results of the organization process
+type Stats struct {
+	success    int
+	duplicates int
+	errors     int
+}
+
 // makeNewDirectory makes a directory and all parent directories
 func makeNewDirectory(directory string) error {
 	err := os.MkdirAll(directory, 0o755)
 	if err != nil {
-		slog.Error("error", "failed to create directory", err.Error())
 		return fmt.Errorf("failed to create directory %s: %w", directory, err)
 	}
 
@@ -30,10 +36,11 @@ func makeNewDirectory(directory string) error {
 }
 
 // getFiles lists all JPG files in the current directory
-func getFiles(src *string) ([]string, error) {
+func getFiles(src string) ([]string, error) {
 	files := make([]string, 0)
 	for _, ext := range extensions {
-		matches, err := filepath.Glob(*src + "/" + ext)
+		pattern := filepath.Join(src, ext)
+		matches, err := filepath.Glob(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("failed to glob pattern %s: %w", ext, err)
 		}
@@ -60,19 +67,16 @@ func readMetadata(image string) (string, error) {
 		return "", fmt.Errorf("failed to get datetime from %s %w", image, err)
 	}
 
-	return datetime.Format(format), nil
+	return datetime.Format(dateFormat), nil
 }
 
-// moveFile moves a file from a source to a destination
-func moveFile(file string, destination string) error {
-	filename := filepath.Base(file)
-	path := filepath.Join(destination, filename)
-
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("file already exists: %s", path)
+// moveFile moves a file from a source to a destination without overwriting files
+func moveFile(source string, destination string) error {
+	if _, err := os.Stat(destination); err == nil {
+		return fmt.Errorf("file already exists: %s", destination)
 	}
 
-	return os.Rename(file, fmt.Sprintf("%s/%s", destination, file))
+	return os.Rename(source, destination)
 }
 
 func main() {
@@ -85,52 +89,51 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("\n Organizing JPG Files...")
-	slog.Info("info", "Organizing image files...", "")
+	slog.Info("Organizing images...", "source", *src, "destination", *dst)
 
-	files, err := getFiles(src)
+	files, err := getFiles(*src)
 	if err != nil {
-		slog.Error("error", "something has gone wrong", nil)
+		slog.Error("Failed to read source directory", "error", err)
+		os.Exit(1)
 	}
-	
+
 	if len(files) == 0 {
-		slog.Error("error", "no image files to process", nil)
+		slog.Warn("No image files to process")
 		return
 	}
 
-	errorCount := 0
-	successCount := 0
-	duplicateCount := 0
+	stats := &Stats{}
 
 	for _, img := range files {
-		directory, err := readMetadata(img)
+		dateString, err := readMetadata(img)
 		if err != nil {
-			slog.Error("error", "getting date for", err.Error())
-			errorCount++
+			slog.Debug("Missing EXIF data", "error", err.Error())
+			dateString = "unknown"
+		}
+
+		targetDir := filepath.Join(*dst, dateString)
+
+		if err := makeNewDirectory(dateString); err != nil {
+			stats.errors++
+			slog.Error("Failed to create directory", "error", err.Error())
 			continue
 		}
 
-		if err := makeNewDirectory(directory); err != nil {
-			errorCount++
-			slog.Error("error", "creating directory for", err.Error())
+		filename := filepath.Base(img)
+		targetPath := filepath.Join(targetDir, filename)
+
+		if err := moveFile(img, targetPath); err != nil {
+			stats.duplicates++
+			slog.Warn("Could not move file", "warn", err.Error())
 			continue
 		}
-		err = moveFile(img, directory)
-		if err != nil {
-			duplicateCount++
-			slog.Warn("warn", "could not move file", err.Error())
-		}
 
-		successCount++
+		stats.success++
 	}
 
-	template := ` Organization complete.
- Successfully moved files: %d
- Duplicate files: %d
- Errors: %d
- Total files moved: %d.
- `
-
-	fmt.Printf(template, successCount, duplicateCount, errorCount, len(files))
+	fmt.Printf("\nOrganization complete.\n")
+	fmt.Printf(" Successfully moved: %d\n", stats.success)
+	fmt.Printf(" Duplicate files:    %d\n", stats.duplicates)
+	fmt.Printf(" Errors:             %d\n", stats.errors)
+	fmt.Printf(" Total processed:    %d\n\n", len(files))
 }
-
