@@ -1,8 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -14,14 +15,14 @@ const (
 )
 
 var (
-	extensions = []string{"*.jpg", "*.JPG", "*.jpeg", "*.JPEG"}
+	extensions = []string{"*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.arw", "*.ARW"}
 )
 
 // makeNewDirectory makes a directory and all parent directories
 func makeNewDirectory(directory string) error {
 	err := os.MkdirAll(directory, 0o755)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("error", "failed to create directory", err.Error())
 		return fmt.Errorf("failed to create directory %s: %w", directory, err)
 	}
 
@@ -29,10 +30,10 @@ func makeNewDirectory(directory string) error {
 }
 
 // getFiles lists all JPG files in the current directory
-func getFiles() ([]string, error) {
+func getFiles(src *string) ([]string, error) {
 	files := make([]string, 0)
 	for _, ext := range extensions {
-		matches, err := filepath.Glob(ext)
+		matches, err := filepath.Glob(*src + "/" + ext)
 		if err != nil {
 			return nil, fmt.Errorf("failed to glob pattern %s: %w", ext, err)
 		}
@@ -67,7 +68,7 @@ func moveFile(file string, destination string) error {
 	filename := filepath.Base(file)
 	path := filepath.Join(destination, filename)
 
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("file already exists: %s", path)
 	}
 
@@ -75,37 +76,49 @@ func moveFile(file string, destination string) error {
 }
 
 func main() {
-	fmt.Println("\n Organizing JPG Files...")
+	src := flag.String("src", ".", "source directory")
+	dst := flag.String("dst", ".", "destination directory")
+	flag.Parse()
 
-	files, err := getFiles()
+	if *src == "" || *dst == "" {
+		fmt.Fprintf(os.Stderr, "Usage: ./organize_photos -src /path/to/images -dst /path/to/destination")
+		os.Exit(1)
+	}
+
+	fmt.Println("\n Organizing JPG Files...")
+	slog.Info("info", "Organizing image files...", "")
+
+	files, err := getFiles(src)
 	if err != nil {
-		log.Fatal("error: something has gone wrong")
+		slog.Error("error", "something has gone wrong", nil)
 	}
 	
 	if len(files) == 0 {
-		fmt.Println(" No image files to process.")
+		slog.Error("error", "no image files to process", nil)
 		return
 	}
 
 	errorCount := 0
 	successCount := 0
+	duplicateCount := 0
 
 	for _, img := range files {
 		directory, err := readMetadata(img)
 		if err != nil {
-			log.Printf("error getting date for %s: %v", img, err)
+			slog.Error("error", "getting date for", err.Error())
 			errorCount++
 			continue
 		}
 
 		if err := makeNewDirectory(directory); err != nil {
 			errorCount++
-			fmt.Printf("error creating directory for %s: %v", img, err)
+			slog.Error("error", "creating directory for", err.Error())
 			continue
 		}
 		err = moveFile(img, directory)
 		if err != nil {
-			log.Fatal("error: ", err)
+			duplicateCount++
+			slog.Warn("warn", "could not move file", err.Error())
 		}
 
 		successCount++
@@ -113,9 +126,11 @@ func main() {
 
 	template := ` Organization complete.
  Successfully moved files: %d
+ Duplicate files: %d
  Errors: %d
- Total files moved: %d.`
+ Total files moved: %d.
+ `
 
-	fmt.Printf(template, successCount, errorCount, len(files))
+	fmt.Printf(template, successCount, duplicateCount, errorCount, len(files))
 }
 
